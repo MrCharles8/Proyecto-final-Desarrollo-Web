@@ -235,6 +235,149 @@ try {
 </aside>
 </div>
 <?php }); break;
+ case 'postular':
+  exigir_sesion(); if (es_administrador() || $metodo!=='POST') detener(403);
+  $id=(int)($_POST['oportunidad_id']??0); $motivacion=trim((string)($_POST['motivacion']??''));
+  if(mb_strlen($motivacion)<20||mb_strlen($motivacion)>2000) throw new RuntimeException('La motivación debe contener entre 20 y 2000 caracteres.');
+  $pdo=conexion_bd(); $pdo->beginTransaction();
+  try {
+   $op=consultar_uno('SELECT id FROM oportunidades WHERE id=? AND estado=? AND fecha_limite>=CURDATE() FOR UPDATE',[$id,'activa']);
+   if(!$op) throw new RuntimeException('La oportunidad ya no está disponible.');
+   ejecutar('INSERT INTO postulaciones(estudiante_id,oportunidad_id,motivacion) VALUES(?,?,?)',[usuario_actual()['id'],$id,$motivacion]);
+   $idPostulacion=(int)$pdo->lastInsertId();
+   ejecutar('INSERT INTO historial_postulaciones(postulacion_id,responsable_id,estado_nuevo,observacion) VALUES(?,?,?,?)',[$idPostulacion,usuario_actual()['id'],'En revisión','Postulación registrada']);
+   $pdo->commit();
+  } catch(Throwable $e) { if($pdo->inTransaction())$pdo->rollBack(); throw $e; }
+  mensaje_temporal('success','Postulación enviada correctamente.'); redirigir('mis-postulaciones');
+ case 'mis-postulaciones':
+  exigir_sesion(); if(es_administrador()) detener(403);
+  $filas=consultar_todos('SELECT a.*,o.titulo,c.nombre empresa,o.fecha_limite FROM postulaciones a JOIN oportunidades o ON o.id=a.oportunidad_id JOIN empresas c ON c.id=o.empresa_id WHERE a.estudiante_id=? ORDER BY a.fecha_creacion DESC',[usuario_actual()['id']]);
+  pagina('Mis postulaciones',function() use($filas) { ?>
+<div class="pagina-heading">
+<div>
+<span class="eyebrow">MI TRAYECTORIA</span>
+<h1>Seguimiento de postulaciones</h1>
+<p>Consulta el estado de cada solicitud y sus cambios.</p>
+</div>
+</div>
+<div class="panel table-wrap">
+<table>
+<thead>
+<tr>
+<th>Oportunidad</th>
+<th>Empresa</th>
+<th>Enviada</th>
+<th>Estado</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<?php foreach($filas as $a): ?>
+<tr>
+<td>
+<strong>
+<?= h($a['titulo']) ?>
+</strong>
+</td>
+<td>
+<?= h($a['empresa']) ?>
+</td>
+<td>
+<?= h(substr($a['fecha_creacion'],0,10)) ?>
+</td>
+<td>
+<?= badge($a['estado']) ?>
+</td>
+<td>
+<a href="index.php?r=postulacion&id=<?= (int)$a['id'] ?>">Ver detalle →</a>
+</td>
+</tr>
+<?php endforeach; if(!$filas): ?>
+<tr>
+<td colspan="5" class="center">Todavía no has enviado postulaciones.</td>
+</tr>
+<?php endif; ?>
+</tbody>
+</table>
+</div>
+<?php }); break;
+ case 'postulacion':
+  exigir_sesion(); $id=(int)($_GET['id']??0);
+  $a=consultar_uno('SELECT a.*,u.nombre_completo estudiante,u.correo correo_estudiante,o.titulo,c.nombre empresa FROM postulaciones a JOIN usuarios u ON u.id=a.estudiante_id JOIN oportunidades o ON o.id=a.oportunidad_id JOIN empresas c ON c.id=o.empresa_id WHERE a.id=?',[$id]);
+  if(!$a||(!es_administrador()&&(int)$a['estudiante_id']!==(int)usuario_actual()['id']))detener(404);
+  $historial=consultar_todos('SELECT h.*,u.nombre_completo responsable FROM historial_postulaciones h JOIN usuarios u ON u.id=h.responsable_id WHERE h.postulacion_id=? ORDER BY h.id DESC',[$id]);
+  pagina('Detalle de postulación',function() use($a,$historial) { ?>
+<div class="pagina-heading">
+<div>
+<span class="eyebrow">SEGUIMIENTO</span>
+<h1>
+<?= h($a['titulo']) ?>
+</h1>
+<p>
+<?= h($a['estudiante']) ?> · <?= h($a['empresa']) ?>
+</p>
+</div>
+<?= badge($a['estado']) ?>
+</div>
+<div class="detail-grid">
+<div class="panel detail">
+<h2>Presentación del estudiante</h2>
+<p class="prewrap">
+<?= h($a['motivacion']) ?>
+</p>
+<hr>
+<h2>Historial de seguimiento</h2>
+<ol class="timeline">
+<?php foreach($historial as $h): ?>
+<li>
+<strong>
+<?= h($h['estado_nuevo']) ?>
+</strong>
+<small>
+<?= h($h['fecha_creacion']) ?> · <?= h($h['responsable']) ?>
+</small>
+<?php if($h['observacion']): ?>
+<p>
+<?= h($h['observacion']) ?>
+</p>
+<?php endif; ?>
+</li>
+<?php endforeach; ?>
+</ol>
+</div>
+<aside class="panel apply-box">
+<h2>Estado actual</h2>
+<?= badge($a['estado']) ?>
+<?php if(es_administrador()&&!in_array($a['estado'],['Aceptada','Rechazada','Retirada'],true)): ?>
+<form method="post" action="index.php?r=cambiar-estado" class="form-stack">
+<input type="hidden" name="_csrf" value="<?= h(csrf()) ?>">
+<input type="hidden" name="postulacion_id" value="<?= (int)$a['id'] ?>">
+<label>Actualizar estado<select name="estado" required>
+<?php foreach($a['estado']==='En revisión'?['Preseleccionada','Aceptada','Rechazada']:['Aceptada','Rechazada'] as $s): ?>
+<option value="<?= h($s) ?>">
+<?= h($s) ?>
+</option>
+<?php endforeach; ?>
+</select>
+</label>
+<label>Observación (opcional)<textarea maxlength="250" name="observacion" rows="3">
+</textarea>
+</label>
+<button class="button primary">Guardar cambio</button>
+</form>
+<?php elseif(!es_administrador()&&!in_array($a['estado'],['Aceptada','Rechazada','Retirada'],true)): ?>
+<form method="post" action="index.php?r=cambiar-estado">
+<input type="hidden" name="_csrf" value="<?= h(csrf()) ?>">
+<input type="hidden" name="postulacion_id" value="<?= (int)$a['id'] ?>">
+<input type="hidden" name="estado" value="Retirada">
+<button class="button danger full" data-confirm="¿Retirar esta postulación?">Retirar postulación</button>
+</form>
+<?php else: ?>
+<p class="muted">La postulación ha alcanzado un estado final.</p>
+<?php endif; ?>
+</aside>
+</div>
+<?php }); break;
  default: detener();
  }
 } catch (Throwable $e) {
