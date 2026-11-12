@@ -67,6 +67,174 @@ function tabla_oportunidades(array $filas): void { ?>
 try {
  if ($metodo === 'POST') verificar_csrf();
  switch ($ruta) {
+ case 'inicio':
+  $resumen = ['activa'=>(int)(consultar_uno("SELECT COUNT(*) n FROM oportunidades WHERE estado='activa' AND fecha_limite>=CURDATE()")['n'] ?? 0), 'empresas'=>(int)(consultar_uno('SELECT COUNT(*) n FROM empresas')['n'] ?? 0)];
+  if (sesion_iniciada()) $resumen['mine'] = (int)(consultar_uno('SELECT COUNT(*) n FROM postulaciones WHERE estudiante_id=?', [usuario_actual()['id']])['n'] ?? 0);
+  $recientes = consultar_todos("SELECT o.*,c.nombre empresa FROM oportunidades o JOIN empresas c ON c.id=o.empresa_id WHERE o.estado='activa' AND o.fecha_limite>=CURDATE() ORDER BY o.fecha_creacion DESC LIMIT 3");
+  pagina('Panel principal', function () use ($resumen,$recientes) { ?>
+  <section class="hero">
+<div>
+<h1>Prácticas profesionales</h1>
+<p>Explora prácticas profesionales, postúlate y sigue cada avance de tu proceso desde un solo lugar.</p>
+<a class="button white" href="index.php?r=oportunidades">Explorar oportunidades →</a>
+</div>
+</section>
+  <h2>Resumen general</h2>
+<table class="summary-table">
+<thead>
+<tr>
+<th>Concepto</th>
+<th>Cantidad</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Oportunidades vigentes</td>
+<td>
+<?= $resumen['activa'] ?>
+</td>
+</tr>
+<tr>
+<td>Empresas vinculadas</td>
+<td>
+<?= $resumen['empresas'] ?>
+</td>
+</tr>
+<?php if (sesion_iniciada() && !es_administrador()): ?>
+<tr>
+<td>Mis postulaciones</td>
+<td>
+<?= $resumen['mine'] ?>
+</td>
+</tr>
+<?php endif; ?>
+</tbody>
+</table>
+  <div class="section-head">
+<div>
+<span class="eyebrow">DESCUBRE</span>
+<h2>Oportunidades recientes</h2>
+</div>
+<a href="index.php?r=oportunidades">Ver todas →</a>
+</div>
+<?php tabla_oportunidades($recientes); ?>
+  <?php }); break;
+ case 'oportunidades':
+  $q=trim((string)($_GET['q']??'')); $mod=(string)($_GET['modalidad']??''); $onlyActive= !es_administrador() || ($_GET['scope']??'') !== 'all';
+  $where=[];$args=[];
+  if ($q!=='') { $where[]='(o.titulo LIKE ? OR c.nombre LIKE ? OR o.ubicacion LIKE ?)'; $search='%'.$q.'%'; array_push($args,$search,$search,$search); }
+  if (in_array($mod,['Presencial','Híbrida','Remota'],true)) { $where[]='o.modalidad=?'; $args[]=$mod; }
+  if ($onlyActive) $where[]="o.estado='activa' AND o.fecha_limite>=CURDATE()";
+  $sql='SELECT o.*,c.nombre empresa FROM oportunidades o JOIN empresas c ON c.id=o.empresa_id'.($where?' WHERE '.implode(' AND ',$where):'').' ORDER BY o.fecha_creacion DESC';
+  $filas=consultar_todos($sql,$args);
+  pagina('Oportunidades',function() use ($filas,$q,$mod,$onlyActive) { ?>
+<div class="pagina-heading">
+<div>
+<span class="eyebrow">EXPLORA TU CAMINO</span>
+<h1>Oportunidades de práctica</h1>
+<p>Descubre experiencias que impulsarán tu desarrollo profesional.</p>
+</div>
+<?php if(es_administrador()): ?>
+<a class="button primary" href="index.php?r=formulario-oportunidad">＋ Publicar oportunidad</a>
+<?php endif; ?>
+</div>
+  <form class="panel filterbar" method="get">
+<input type="hidden" name="r" value="oportunidades">
+<label>Buscar<input name="q" value="<?= h($q) ?>" placeholder="Puesto, empresa o ubicación">
+</label>
+<label>Modalidad<select name="modalidad">
+<option value="">Todas</option>
+<?php foreach(['Presencial','Híbrida','Remota'] as $m): ?>
+<option <?= $m===$mod?'selected':'' ?> value="<?= h($m) ?>">
+<?= h($m) ?>
+</option>
+<?php endforeach; ?>
+</select>
+</label>
+<?php if(es_administrador()): ?>
+<label>Visualización<select name="scope">
+<option value="activa">Vigentes</option>
+<option value="all" <?= !$onlyActive?'selected':'' ?>>Todas</option>
+</select>
+</label>
+<?php endif; ?>
+<button class="button primary" type="submit">Filtrar</button>
+</form>
+  <div class="result-titulo">
+<?= count($filas) ?> resultado(s)</div>
+<?php tabla_oportunidades($filas); ?>
+<?php }); break;
+ case 'oportunidad':
+  $o=oportunidad((int)($_GET['id']??0));
+  $applied=sesion_iniciada() && !es_administrador() ? consultar_uno('SELECT id,estado FROM postulaciones WHERE estudiante_id=? AND oportunidad_id=?',[usuario_actual()['id'],$o['id']]) : false;
+  pagina('Detalle de oportunidad',function() use($o,$applied) { ?>
+<a class="back" href="index.php?r=oportunidades">← Volver a oportunidades</a>
+<div class="detail-grid">
+<article class="panel detail">
+<div class="card-row">
+<span class="eyebrow">
+<?= h($o['empresa']) ?> · <?= h($o['sector']) ?>
+</span>
+<?= badge($o['estado']) ?>
+</div>
+<h1>
+<?= h($o['titulo']) ?>
+</h1>
+<div class="chips">
+<span>⌖ <?= h($o['ubicacion']) ?>
+</span>
+<span>◈ <?= h($o['modalidad']) ?>
+</span>
+<span>◷ <?= h($o['fecha_limite']) ?>
+</span>
+<span>♧ <?= (int)$o['vacantes'] ?> vacante(s)</span>
+</div>
+<hr>
+<h2>Acerca de la práctica</h2>
+<p class="prewrap">
+<?= h($o['descripcion']) ?>
+</p>
+<h2>Requisitos</h2>
+<p class="prewrap">
+<?= h($o['requisitos']) ?>
+</p>
+<?php if ($o['sitio_web']): ?>
+<p>
+<a href="<?= h($o['sitio_web']) ?>" rel="noopener noreferrer" target="_blank">Sitio web de la empresa ↗</a>
+</p>
+<?php endif; ?>
+</article>
+  <aside class="panel apply-box">
+<div class="eyebrow">POSTULACIÓN</div>
+<h2>Da el siguiente paso</h2>
+<p>Fecha límite: <strong>
+<?= h($o['fecha_limite']) ?>
+</strong>
+</p>
+<?php if (es_administrador()): ?>
+<a class="button primary full" href="index.php?r=formulario-oportunidad&id=<?= (int)$o['id'] ?>">Editar oportunidad</a>
+<?php elseif (!$applied && $o['estado']==='activa' && $o['fecha_limite']>=date('Y-m-d') && sesion_iniciada()): ?>
+<form method="post" action="index.php?r=postular">
+<input type="hidden" name="_csrf" value="<?= h(csrf()) ?>">
+<input type="hidden" name="oportunidad_id" value="<?= (int)$o['id'] ?>">
+<label>¿Por qué te interesa esta práctica?<textarea name="motivacion" minlength="20" maxlength="2000" rows="5" required placeholder="Explica brevemente tu interés y habilidades relevantes.">
+</textarea>
+</label>
+<button class="button primary full">Enviar postulación</button>
+</form>
+<?php elseif ($applied): ?>
+<p>Ya te postulaste: <?= badge($applied['estado']) ?>
+</p>
+<a class="button outline full" href="index.php?r=mis-postulaciones">Ver seguimiento</a>
+<?php elseif (!sesion_iniciada()): ?>
+<p>Inicia sesión para presentar tu solicitud.</p>
+<a class="button primary full" href="index.php?r=ingresar">Iniciar sesión</a>
+<?php else: ?>
+<p>Esta oportunidad ya no recibe postulaciones.</p>
+<?php endif; ?>
+</aside>
+</div>
+<?php }); break;
  default: detener();
  }
 } catch (Throwable $e) {
