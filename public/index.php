@@ -119,6 +119,64 @@ try {
 </div>
 <?php tabla_oportunidades($recientes); ?>
   <?php }); break;
+ case 'ingresar':
+  if ($metodo === 'POST') {
+   $correo = mb_strtolower(trim((string)($_POST['correo'] ?? ''))); $u = consultar_uno('SELECT * FROM usuarios WHERE correo=?',[$correo]);
+   if (!$u || !password_verify((string)($_POST['contrasena'] ?? ''), $u['contrasena_hash'])) throw new RuntimeException('Correo o contraseña incorrectos.');
+   session_regenerate_id(true); $_SESSION['usuario']=['id'=>$u['id'],'nombre_completo'=>$u['nombre_completo'],'correo'=>$u['correo'],'rol'=>$u['rol']];
+    mensaje_temporal('success','Bienvenido al portal.'); redirigir('inicio');
+  }
+  pagina('Iniciar sesión', function() { ?>
+<div class="auth-wrap">
+<div class="panel auth-card">
+<div class="eyebrow">ACCESO A LA PLATAFORMA</div>
+<h1>Bienvenido de nuevo</h1>
+<p class="muted">Ingresa tus credenciales para continuar.</p>
+<form method="post" class="form-stack">
+<input type="hidden" name="_csrf" value="<?= h(csrf()) ?>">
+<label>Correo electrónico<input required type="email" name="correo" autocomplete="username" placeholder="correo@universidad.edu">
+</label>
+<label>Contraseña<input required type="password" name="contrasena" autocomplete="current-password" placeholder="••••••••">
+</label>
+<button class="button primary full">Iniciar sesión</button>
+</form>
+<p class="center muted">¿Eres estudiante? <a href="index.php?r=registro">Crea una cuenta</a>
+</p>
+</div>
+</div>
+<?php }); break;
+ case 'registro':
+  if (sesion_iniciada()) redirigir('inicio');
+  if ($metodo === 'POST') {
+   $nombre=trim((string)($_POST['nombre']??'')); $correo=mb_strtolower(trim((string)($_POST['correo']??'')));
+    $carnet=trim((string)($_POST['carnet']??'')); $contrasena=(string)($_POST['contrasena']??'');
+   verificar_errores(array_filter([mb_strlen($nombre)<4||mb_strlen($nombre)>120?'El nombre debe tener entre 4 y 120 caracteres.':'', !filter_var($correo,FILTER_VALIDATE_EMAIL)||mb_strlen($correo)>190?'Correo electrónico inválido.':'', mb_strlen($carnet)<3||mb_strlen($carnet)>30?'El carné debe tener entre 3 y 30 caracteres.':'', strlen($contrasena)<10?'La contraseña debe tener al menos 10 caracteres.':'']));
+   ejecutar("INSERT INTO usuarios(nombre_completo,correo,contrasena_hash,rol,carnet_estudiante) VALUES(?,?,?,'estudiante',?)",[$nombre,$correo,password_hash($contrasena,PASSWORD_DEFAULT),$carnet]);
+   mensaje_temporal('success','Cuenta registrada. Ahora puedes iniciar sesión.'); redirigir('ingresar');
+  }
+  pagina('Crear cuenta', function() { ?>
+<div class="auth-wrap">
+<div class="panel auth-card">
+<div class="eyebrow">REGISTRO ESTUDIANTIL</div>
+<h1>Crea tu cuenta</h1>
+<p class="muted">Comienza a explorar nuevas oportunidades.</p>
+<form class="form-stack" method="post">
+<input type="hidden" name="_csrf" value="<?= h(csrf()) ?>">
+<label>Nombre completo<input required maxlength="120" name="nombre" value="<?= valor_previo('nombre') ?>">
+</label>
+<label>Correo electrónico<input required type="email" maxlength="190" name="correo" value="<?= valor_previo('correo') ?>">
+</label>
+<label>Carné universitario<input required maxlength="30" name="carnet" value="<?= valor_previo('code') ?>">
+</label>
+<label>Contraseña (mínimo 10 caracteres)<input required minlength="10" type="password" name="contrasena" autocomplete="new-password">
+</label>
+<button class="button primary full">Registrar estudiante</button>
+</form>
+</div>
+</div>
+<?php }); break;
+ case 'salir':
+  if ($metodo !== 'POST') detener(405); $_SESSION=[]; session_regenerate_id(true); mensaje_temporal('success','Sesión cerrada.'); redirigir('ingresar');
  case 'oportunidades':
   $q=trim((string)($_GET['q']??'')); $mod=(string)($_GET['modalidad']??''); $onlyActive= !es_administrador() || ($_GET['scope']??'') !== 'all';
   $where=[];$args=[];
