@@ -359,6 +359,70 @@ try {
 </table>
 </div>
 <?php }); break;
+ case 'administrar-postulaciones':
+  exigir_administrador(); $estado=(string)($_GET['estado']??'');$condiciones=[];$parametros=[];
+  if(in_array($estado,['En revisión','Preseleccionada','Aceptada','Rechazada','Retirada'],true)){ $condiciones[]='a.estado=?';$parametros[]=$estado; }
+  $filas=consultar_todos('SELECT a.*,u.nombre_completo estudiante,o.titulo,c.nombre empresa FROM postulaciones a JOIN usuarios u ON u.id=a.estudiante_id JOIN oportunidades o ON o.id=a.oportunidad_id JOIN empresas c ON c.id=o.empresa_id'.($condiciones?' WHERE '.implode(' AND ',$condiciones):'').' ORDER BY a.fecha_actualizacion DESC',$parametros);
+  pagina('Gestión de postulaciones',function() use($filas,$estado) { ?>
+<div class="pagina-heading">
+<div>
+<span class="eyebrow">COORDINACIÓN ACADÉMICA</span>
+<h1>Control de postulaciones</h1>
+<p>Gestiona el avance de cada estudiante.</p>
+</div>
+</div>
+<form class="filterbar panel" method="get">
+<input type="hidden" name="r" value="administrar-postulaciones">
+<label>Filtrar por estado<select name="estado">
+<option value="">Todos los estados</option>
+<?php foreach(['En revisión','Preseleccionada','Aceptada','Rechazada','Retirada'] as $s): ?>
+<option value="<?= h($s) ?>" <?= $estado===$s?'selected':'' ?>>
+<?= h($s) ?>
+</option>
+<?php endforeach; ?>
+</select>
+</label>
+<button class="button primary">Aplicar</button>
+</form>
+<div class="panel table-wrap">
+<table>
+<thead>
+<tr>
+<th>Estudiante</th>
+<th>Oportunidad</th>
+<th>Empresa</th>
+<th>Estado</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<?php foreach($filas as $a): ?>
+<tr>
+<td>
+<?= h($a['estudiante']) ?>
+</td>
+<td>
+<?= h($a['titulo']) ?>
+</td>
+<td>
+<?= h($a['empresa']) ?>
+</td>
+<td>
+<?= badge($a['estado']) ?>
+</td>
+<td>
+<a href="index.php?r=postulacion&id=<?= (int)$a['id'] ?>">Gestionar →</a>
+</td>
+</tr>
+<?php endforeach; if(!$filas): ?>
+<tr>
+<td colspan="5" class="center">No hay postulaciones.</td>
+</tr>
+<?php endif; ?>
+</tbody>
+</table>
+</div>
+<?php }); break;
  case 'postulacion':
   exigir_sesion(); $id=(int)($_GET['id']??0);
   $a=consultar_uno('SELECT a.*,u.nombre_completo estudiante,u.correo correo_estudiante,o.titulo,c.nombre empresa FROM postulaciones a JOIN usuarios u ON u.id=a.estudiante_id JOIN oportunidades o ON o.id=a.oportunidad_id JOIN empresas c ON c.id=o.empresa_id WHERE a.id=?',[$id]);
@@ -436,6 +500,21 @@ try {
 </aside>
 </div>
 <?php }); break;
+ case 'cambiar-estado':
+  exigir_sesion(); if($metodo!=='POST') detener(405);
+  $id=(int)($_POST['postulacion_id']??0);$estadoSiguiente=(string)($_POST['estado']??'');$observacion=trim((string)($_POST['observacion']??''));
+  if(mb_strlen($observacion)>250)throw new RuntimeException('La observación es demasiado larga.');
+  $pdo=conexion_bd();$pdo->beginTransaction();
+  try {
+   $a=consultar_uno('SELECT * FROM postulaciones WHERE id=? FOR UPDATE',[$id]); if(!$a)detener(404);
+   if(!es_administrador()&&(int)$a['estudiante_id']!==(int)usuario_actual()['id'])detener(403);
+   $allowed=es_administrador()?['En revisión'=>['Preseleccionada','Aceptada','Rechazada'],'Preseleccionada'=>['Aceptada','Rechazada']]:['En revisión'=>['Retirada'],'Preseleccionada'=>['Retirada']];
+   if(!in_array($estadoSiguiente,$allowed[$a['estado']]??[],true))throw new RuntimeException('Esta transición de estado no está permitida.');
+   ejecutar('UPDATE postulaciones SET estado=? WHERE id=?',[$estadoSiguiente,$id]);
+   ejecutar('INSERT INTO historial_postulaciones(postulacion_id,responsable_id,estado_anterior,estado_nuevo,observacion) VALUES(?,?,?,?,?)',[$id,usuario_actual()['id'],$a['estado'],$estadoSiguiente,$observacion]);
+   $pdo->commit();
+  }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
+  mensaje_temporal('success','Estado actualizado; el historial conserva el cambio.');redirigir('postulacion',['id'=>$id]);
  case 'formulario-oportunidad':
   exigir_administrador(); $id=(int)($_GET['id']??0);$o=$id?oportunidad($id):null;$empresas=consultar_todos('SELECT * FROM empresas ORDER BY nombre');
   if($metodo==='POST'){
