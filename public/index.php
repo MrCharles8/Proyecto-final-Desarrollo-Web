@@ -436,6 +436,153 @@ try {
 </aside>
 </div>
 <?php }); break;
+ case 'formulario-oportunidad':
+  exigir_administrador(); $id=(int)($_GET['id']??0);$o=$id?oportunidad($id):null;$empresas=consultar_todos('SELECT * FROM empresas ORDER BY nombre');
+  if($metodo==='POST'){
+   $datos=array_map(static fn($v)=>is_string($v)?trim($v):$v,$_POST);
+   verificar_errores(validar_oportunidad($datos));
+   $campos=[$datos['empresa_id'],$datos['titulo'],$datos['descripcion'],$datos['requisitos'],$datos['ubicacion'],$datos['modalidad'],$datos['vacantes'],$datos['fecha_limite'],$datos['estado']];
+   if($id){ejecutar('UPDATE oportunidades SET empresa_id=?,titulo=?,descripcion=?,requisitos=?,ubicacion=?,modalidad=?,vacantes=?,fecha_limite=?,estado=? WHERE id=?',[...$campos,$id]);
+    }
+   else{ejecutar('INSERT INTO oportunidades(empresa_id,titulo,descripcion,requisitos,ubicacion,modalidad,vacantes,fecha_limite,estado,creado_por) VALUES(?,?,?,?,?,?,?,?,?,?)',[...$campos,usuario_actual()['id']]);
+    $id=(int)conexion_bd()->lastInsertId();}
+   mensaje_temporal('success','Oportunidad guardada correctamente.');redirigir('oportunidad',['id'=>$id]);
+  }
+  pagina($id?'Editar oportunidad':'Nueva oportunidad',function() use($o,$empresas,$id) { ?>
+<div class="pagina-heading">
+<div>
+<span class="eyebrow">ADMINISTRACIÓN</span>
+<h1>
+<?= $id?'Editar':'Publicar' ?> oportunidad</h1>
+<p>Completa la información que verán los estudiantes.</p>
+</div>
+</div>
+<div class="panel form-panel">
+<form method="post" class="form-stack">
+<input type="hidden" name="_csrf" value="<?= h(csrf()) ?>">
+<div class="form-grid">
+<label>Empresa<select name="empresa_id" required>
+<?php foreach($empresas as $c): ?>
+<option value="<?= (int)$c['id'] ?>" <?= (int)($o['empresa_id']??0)===(int)$c['id']?'selected':'' ?>>
+<?= h($c['nombre']) ?>
+</option>
+<?php endforeach; ?>
+</select>
+</label>
+<label>Título de la práctica<input name="titulo" maxlength="160" required value="<?= h($o['titulo']??'') ?>">
+</label>
+</div>
+<label>Descripción<textarea name="descripcion" required minlength="10" rows="5">
+<?= h($o['descripcion']??'') ?>
+</textarea>
+</label>
+<label>Requisitos<textarea name="requisitos" required minlength="10" rows="4">
+<?= h($o['requisitos']??'') ?>
+</textarea>
+</label>
+<div class="form-grid">
+<label>Ubicación<input name="ubicacion" required maxlength="120" value="<?= h($o['ubicacion']??'') ?>">
+</label>
+<label>Modalidad<select name="modalidad">
+<?php foreach(['Presencial','Híbrida','Remota'] as $m): ?>
+<option <?= ($o['modalidad']??'')===$m?'selected':'' ?>>
+<?= h($m) ?>
+</option>
+<?php endforeach; ?>
+</select>
+</label>
+<label>Vacantes<input type="number" name="vacantes" min="1" max="999" required value="<?= h($o['vacantes']??'1') ?>">
+</label>
+<label>Fecha límite<input type="date" name="fecha_limite" required value="<?= h($o['fecha_limite']??date('Y-m-d',strtotime('+1 month'))) ?>">
+</label>
+<label>Estado<select name="estado">
+<option value="activa" <?= ($o['estado']??'activa')==='activa'?'selected':'' ?>>Vigente</option>
+<option value="cerrada" <?= ($o['estado']??'')==='cerrada'?'selected':'' ?>>Cerrada</option>
+</select>
+</label>
+</div>
+<div class="form-actions">
+<button class="button primary">Guardar oportunidad</button>
+<a class="button outline" href="index.php?r=oportunidades">Cancelar</a>
+</div>
+</form>
+<?php if($id): ?>
+<form method="post" action="index.php?r=eliminar-oportunidad" class="delete-form">
+<input type="hidden" name="_csrf" value="<?= h(csrf()) ?>">
+<input type="hidden" name="id" value="<?= $id ?>">
+<button class="button danger" data-confirm="¿Eliminar esta oportunidad? Solo será posible si no existen postulaciones.">Eliminar oportunidad</button>
+</form>
+<?php endif; ?>
+</div>
+<?php }); break;
+ case 'eliminar-oportunidad':
+  exigir_administrador();if($metodo!=='POST')detener(405);$id=(int)($_POST['id']??0);
+  if(consultar_uno('SELECT id FROM postulaciones WHERE oportunidad_id=? LIMIT 1',[$id]))throw new RuntimeException('No puedes eliminar una oportunidad con postulaciones. Ciérrala para conservar la trazabilidad.');
+  ejecutar('DELETE FROM oportunidades WHERE id=?',[$id]);mensaje_temporal('success','Oportunidad eliminada.');redirigir('oportunidades');
+ case 'empresas':
+  exigir_administrador();
+  if($metodo==='POST'){
+   $nombre=trim((string)($_POST['nombre']??''));$sector=trim((string)($_POST['sector']??''));
+    $sitio_web=trim((string)($_POST['sitio_web']??''));$id=(int)($_POST['id']??0);
+   if(mb_strlen($nombre)<3||mb_strlen($nombre)>150||mb_strlen($sector)<3||mb_strlen($sector)>100)throw new RuntimeException('Revisa el nombre y sector de la empresa.');
+   if($sitio_web!==''&&(!filter_var($sitio_web,FILTER_VALIDATE_URL)||!in_array(parse_url($sitio_web,PHP_URL_SCHEME),['http','https'],true)||mb_strlen($sitio_web)>255))throw new RuntimeException('URL de empresa inválida.');
+   if($id)ejecutar('UPDATE empresas SET nombre=?,sector=?,sitio_web=? WHERE id=?',[$nombre,$sector,$sitio_web?:null,$id]);
+   else ejecutar('INSERT INTO empresas(nombre,sector,sitio_web) VALUES(?,?,?)',[$nombre,$sector,$sitio_web?:null]);
+   mensaje_temporal('success','Empresa guardada.');redirigir('empresas');
+  }
+  $empresas=consultar_todos('SELECT * FROM empresas ORDER BY nombre');
+  pagina('Empresas vinculadas',function() use($empresas) { ?>
+<div class="pagina-heading">
+<div>
+<span class="eyebrow">DIRECTORIO</span>
+<h1>Empresas vinculadas</h1>
+<p>Administra las organizaciones que ofrecen prácticas.</p>
+</div>
+</div>
+<div class="detail-grid">
+<div class="panel table-wrap">
+<table>
+<thead>
+<tr>
+<th>Empresa</th>
+<th>Sector</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<?php foreach($empresas as $c): ?>
+<tr>
+<td>
+<?= h($c['nombre']) ?>
+</td>
+<td>
+<?= h($c['sector']) ?>
+</td>
+<td>
+<button type="button" class="link-button" data-empresa='<?= h(json_encode($c,JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_TAG|JSON_HEX_AMP)) ?>'>Editar</button>
+</td>
+</tr>
+<?php endforeach; ?>
+</tbody>
+</table>
+</div>
+<aside class="panel apply-box">
+<h2>Agregar o editar empresa</h2>
+<form method="post" class="form-stack" id="formularioEmpresa">
+<input type="hidden" name="_csrf" value="<?= h(csrf()) ?>">
+<input type="hidden" name="id" value="">
+<label>Nombre<input required name="nombre" maxlength="150">
+</label>
+<label>Sector<input required name="sector" maxlength="100">
+</label>
+<label>Sitio web (opcional)<input type="url" name="sitio_web" maxlength="255" placeholder="https://...">
+</label>
+<button class="button primary">Guardar empresa</button>
+<button type="reset" class="button outline">Limpiar</button>
+</form>
+</aside>
+</div>
+<?php });break;
  default: detener();
  }
 } catch (Throwable $e) {
