@@ -38,3 +38,29 @@ CREATE TABLE IF NOT EXISTS oportunidades (
  INDEX idx_oportunidad_estado_fecha (estado,fecha_limite)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS postulaciones (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ estudiante_id BIGINT UNSIGNED NOT NULL,
+ oportunidad_id BIGINT UNSIGNED NOT NULL,
+ motivacion TEXT NOT NULL,
+ estado ENUM('En revisión','Preseleccionada','Aceptada','Rechazada','Retirada') NOT NULL DEFAULT 'En revisión',
+ fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ CONSTRAINT fk_postulacion_estudiante FOREIGN KEY (estudiante_id) REFERENCES usuarios(id),
+ CONSTRAINT fk_postulacion_oportunidad FOREIGN KEY (oportunidad_id) REFERENCES oportunidades(id),
+ CONSTRAINT uq_estudiante_oportunidad UNIQUE(estudiante_id,oportunidad_id),
+ INDEX idx_postulacion_estado (estado)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS historial_postulaciones (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ postulacion_id BIGINT UNSIGNED NOT NULL,
+ responsable_id BIGINT UNSIGNED NOT NULL,
+ estado_anterior VARCHAR(30) NULL,
+ estado_nuevo VARCHAR(30) NOT NULL,
+ observacion VARCHAR(250) NOT NULL DEFAULT '',
+ fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ CONSTRAINT fk_historial_postulacion FOREIGN KEY (postulacion_id) REFERENCES postulaciones(id) ON DELETE CASCADE,
+ CONSTRAINT fk_historial_responsable FOREIGN KEY (responsable_id) REFERENCES usuarios(id),
+ INDEX idx_historial_postulacion (postulacion_id,fecha_creacion)
+) ENGINE=InnoDB;
